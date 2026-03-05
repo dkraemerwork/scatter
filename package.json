@@ -1,0 +1,36 @@
+{
+  "name": "scatter",
+  "version": "0.1.0",
+  "description": "Inline Bun workers with lock-free shared-memory channels. Scatter your work across all cores.",
+  "type": "module",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "exports": {
+    ".": {
+      "import": "./src/index.ts",
+      "types": "./src/index.ts"
+    }
+  },
+  "scripts": {
+    "test": "bun test",
+    "test:watch": "bun test --watch",
+    "typecheck": "bun run tsc --noEmit"
+  },
+  "keywords": [
+    "bun",
+    "worker",
+    "thread",
+    "inline",
+    "shared-memory",
+    "lock-free",
+    "ring-buffer",
+    "SharedArrayBuffer",
+    "concurrency",
+    "parallel"
+  ],
+  "license": "MIT",
+  "devDependencies": {
+    "@types/bun": "latest",
+    "typescript": "beta"
+  }
+}

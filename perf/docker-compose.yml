@@ -1,0 +1,12 @@
+services:
+  scatter-perf:
+    build:
+      context: ..
+      dockerfile: perf/Dockerfile
+    ports:
+      - "3000:3000"
+    deploy:
+      resources:
+        limits:
+          cpus: "12"
+          memory: 4G

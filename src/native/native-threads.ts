@@ -13,7 +13,7 @@
  *
  * @example
  * ```ts
- * import { NativeThreads } from 'scatter';
+ * import { NativeThreads } from 'scatter.js';
  *
  * const native = await NativeThreads.create();
  *
@@ -241,10 +241,9 @@ function parseResults(buffer: ArrayBuffer, count: number, structSize: number): N
 // FFI helpers
 // ---------------------------------------------------------------------------
 
-/** Get a pointer to an ArrayBuffer for FFI. */
-function ptr(buffer: ArrayBuffer): unknown {
-  // Bun's FFI accepts ArrayBuffer directly as a pointer
-  return buffer;
+/** Get a pointer-compatible typed array view for Bun FFI. */
+function ptr(buffer: ArrayBuffer): Uint8Array {
+  return new Uint8Array(buffer);
 }
 
 /** Compile burn.c at runtime using Bun's built-in cc. */

@@ -3,11 +3,12 @@
  *
  * Public API surface. Everything a user imports from `scatter` comes from here.
  *
- * Four API tiers:
+ * Five API tiers:
  *   scatter()        — one-shot: offload a function to a thread
  *   scatter.spawn()  — persistent: long-lived worker with shared-memory channels
  *   scatter.pool()   — pooled: N workers with automatic task dispatch
  *   scatter.max()    — saturating: fill every core for a bounded computation
+ *   NativeThreads    — raw pthreads via bun:ffi for maximum native performance
  *
  * @example
  * ```ts
@@ -100,3 +101,14 @@ export {
 // ---------------------------------------------------------------------------
 
 export type { Codec } from './memory/codec.js';
+
+// ---------------------------------------------------------------------------
+// Native threads — raw pthreads via bun:ffi for maximum performance
+// ---------------------------------------------------------------------------
+
+export { NativeThreads, NativeThreadError } from './native/index.js';
+export type {
+  NativeBurnResult,
+  NativeBurnOptions,
+  NativeThreadsOptions,
+} from './native/index.js';

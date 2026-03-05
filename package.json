@@ -9,6 +9,10 @@
     ".": {
       "import": "./src/index.ts",
       "types": "./src/index.ts"
+    },
+    "./native": {
+      "import": "./src/native/index.ts",
+      "types": "./src/native/index.ts"
     }
   },
   "scripts": {

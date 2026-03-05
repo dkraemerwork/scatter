@@ -5,6 +5,7 @@ Inline Bun workers with lock-free shared-memory channels. Scatter your work acro
 ## Goals
 
 - **Zero boilerplate** — pass a function, get a thread. No separate worker files, no build step.
+- **Zero dependencies** - don't worry about outdated external libraries
 - **Real OS threads** — every Bun Worker maps 1:1 to an OS thread. No green threads, no fake parallelism.
 - **Shared memory by default** — channels use `SharedArrayBuffer` ring buffers with lock-free atomics. No serialization overhead for binary codecs.
 - **Progressive API** — start with `scatter()` for a one-liner, scale up to pools, streaming channels, or full core saturation without changing your mental model.

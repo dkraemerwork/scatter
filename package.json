@@ -10,6 +10,10 @@
       "import": "./src/index.ts",
       "types": "./src/index.ts"
     },
+    "./decorators": {
+      "import": "./src/decorators/index.ts",
+      "types": "./src/decorators/index.ts"
+    },
     "./native": {
       "import": "./src/native/index.ts",
       "types": "./src/native/index.ts"

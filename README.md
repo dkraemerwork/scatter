@@ -40,6 +40,19 @@ Five API tiers, one import:
 | Max | `scatter.max(fn, opts)` | Saturate every CPU core for a bounded computation |
 | Native | `NativeThreads.create()` | Raw pthreads via bun:ffi for maximum throughput |
 
+Optional decorator entrypoint:
+
+```ts
+import {
+  Scaled,
+  WorkerClass,
+  cleanupAllDecoratorPools,
+} from 'scatter/decorators';
+```
+
+The decorator API stays separate so the core `scatter` import remains zero-overhead for users who
+only want the runtime primitives.
+
 ## Examples
 
 ### One-shot
@@ -118,7 +131,66 @@ const partialSums = await scatter.max(
 const total = partialSums.reduce((a, b) => a + b, 0);
 ```
 
-### Native pthreads
+## Decorators
+
+Decorators are opt-in via `scatter/decorators`.
+
+- `@Scaled()` offloads a single method; default mode is one-shot and `@Scaled({ pool: N })` reuses a shared pool.
+- `@WorkerClass()` proxies public prototype methods through a per-class shared worker pool.
+- Decorated methods return `Promise<...>` at runtime.
+- Type helpers are available for exact annotations: `ScaledMethod`, `WorkerProxied`, and `WorkerClassStatic`.
+- Instance state is snapshot-serialized before each call; non-serializable fields such as functions are dropped.
+
+### `@Scaled()`
+
+```ts
+import { Scaled, cleanupAllDecoratorPools } from 'scatter/decorators';
+
+class ScoreService {
+  multiplier = 3;
+
+  @Scaled()
+  calculateWeightedTotal(scores: number[]): number {
+    return scores.reduce((sum, score) => sum + score * this.multiplier, 0);
+  }
+}
+
+const service = new ScoreService();
+const total = await service.calculateWeightedTotal([4, 7, 9, 10]);
+
+await cleanupAllDecoratorPools();
+```
+
+### `@WorkerClass()`
+
+```ts
+import { WorkerClass } from 'scatter/decorators';
+import type { WorkerClassStatic, WorkerProxied } from 'scatter/decorators';
+
+@WorkerClass({ pool: 4 })
+class ImageService {
+  quality = 2;
+
+  resize(width: number, height: number): number {
+    return width * height * this.quality;
+  }
+}
+
+const ImageServiceClass = ImageService as WorkerClassStatic<typeof ImageService>;
+const service = new ImageService() as unknown as WorkerProxied<ImageService>;
+const pixels = await service.resize(800, 600);
+
+await ImageServiceClass.disposeWorkers();
+```
+
+## Repo Examples
+
+- `bun run examples/scaled-basic.ts`
+- `bun run examples/worker-class-basic.ts`
+- `bun run perf/server.ts`
+- `bun run perf/server-worker-class.ts`
+
+## Native pthreads
 
 ```ts
 import { NativeThreads } from 'scatter';

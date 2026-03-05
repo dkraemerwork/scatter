@@ -23,17 +23,6 @@ interface BurnResult {
   readonly checksum: number;
 }
 
-function detectCPUs(): number {
-  const envOverride = parseInt(Bun.env.CPUS ?? '', 10);
-  if (envOverride > 0) return envOverride;
-
-  if (typeof navigator !== 'undefined' && navigator.hardwareConcurrency > 0) {
-    return navigator.hardwareConcurrency;
-  }
-
-  return 4;
-}
-
 async function readTrimmedFile(filePath: string): Promise<string | null> {
   try {
     return (await Bun.file(filePath).text()).trim();
@@ -42,28 +31,113 @@ async function readTrimmedFile(filePath: string): Promise<string | null> {
   }
 }
 
-async function detectMemoryMB(): Promise<number> {
-  const envOverride = parseInt(Bun.env.MEMORY_MB ?? '', 10);
+function parseMemoryOverrideMB(raw: string | undefined): number | null {
+  if (!raw) return null;
+
+  const trimmed = raw.trim().toLowerCase();
+  const match = trimmed.match(/^(\d+)([kmgt])?(?:i?b?)?$/);
+  if (!match) return null;
+
+  const value = parseInt(match[1], 10);
+  const unit = match[2] ?? 'm';
+
+  switch (unit) {
+    case 'k': return Math.max(1, Math.floor(value / 1024));
+    case 'm': return value;
+    case 'g': return value * 1024;
+    case 't': return value * 1024 * 1024;
+    default: return null;
+  }
+}
+
+function parseCgroupMemoryLimitMB(raw: string): number | null {
+  const trimmed = raw.trim().toLowerCase();
+  if (!trimmed || trimmed === 'max') return null;
+
+  if (/^\d+$/.test(trimmed)) {
+    const bytes = parseInt(trimmed, 10);
+    return bytes > 0 ? Math.max(1, Math.floor(bytes / (1024 * 1024))) : null;
+  }
+
+  return parseMemoryOverrideMB(trimmed);
+}
+
+function parseCpuLimit(raw: string): number | null {
+  const [quotaText, periodText] = raw.trim().split(/\s+/);
+  if (!quotaText || quotaText === 'max' || !periodText) return null;
+
+  const quota = parseInt(quotaText, 10);
+  const period = parseInt(periodText, 10);
+
+  if (quota <= 0 || period <= 0) return null;
+  return Math.max(1, Math.floor(quota / period));
+}
+
+async function detectCPUs(): Promise<number> {
+  const envOverride = parseInt(Bun.env.CPUS ?? '', 10);
   if (envOverride > 0) return envOverride;
 
+  const cpuMax = await readTrimmedFile('/sys/fs/cgroup/cpu.max');
+  if (cpuMax !== null) {
+    const detected = parseCpuLimit(cpuMax);
+    if (detected !== null) return detected;
+  }
+
+  const quotaText = await readTrimmedFile('/sys/fs/cgroup/cpu/cpu.cfs_quota_us');
+  const periodText = await readTrimmedFile('/sys/fs/cgroup/cpu/cpu.cfs_period_us');
+  if (quotaText !== null && periodText !== null) {
+    const quota = parseInt(quotaText, 10);
+    const period = parseInt(periodText, 10);
+    if (quota > 0 && period > 0) {
+      return Math.max(1, Math.floor(quota / period));
+    }
+  }
+
+  if (typeof navigator !== 'undefined' && navigator.hardwareConcurrency > 0) {
+    return navigator.hardwareConcurrency;
+  }
+
+  return 4;
+}
+
+async function detectMemoryMB(): Promise<number> {
+  const envOverride = parseMemoryOverrideMB(Bun.env.MEMORY_MB);
+  if (envOverride !== null && envOverride > 0) return envOverride;
+
   const cgroupV2Limit = await readTrimmedFile('/sys/fs/cgroup/memory.max');
-  if (cgroupV2Limit !== null && cgroupV2Limit !== 'max') {
-    return Math.floor(parseInt(cgroupV2Limit, 10) / (1024 * 1024));
+  if (cgroupV2Limit !== null) {
+    const detected = parseCgroupMemoryLimitMB(cgroupV2Limit);
+    if (detected !== null) return detected;
   }
 
   const cgroupV1Limit = await readTrimmedFile('/sys/fs/cgroup/memory/memory.limit_in_bytes');
   if (cgroupV1Limit !== null) {
-    const limit = parseInt(cgroupV1Limit, 10);
-    if (limit > 0) {
-      return Math.floor(limit / (1024 * 1024));
-    }
+    const detected = parseCgroupMemoryLimitMB(cgroupV1Limit);
+    if (detected !== null) return detected;
   }
 
   return 4096;
 }
 
+function buildMemoryAssignments(totalMemoryMB: number, workerCount: number): number[] {
+  if (workerCount < 1) return [];
+
+  const safeTotal = Math.max(0, totalMemoryMB);
+  const base = Math.floor(safeTotal / workerCount);
+  let remainder = safeTotal % workerCount;
+
+  return Array.from({ length: workerCount }, () => {
+    if (remainder > 0) {
+      remainder--;
+      return base + 1;
+    }
+
+    return base;
+  });
+}
+
 const PORT = parseInt(Bun.env.PORT ?? '3000', 10);
-const NUM_CPUS = detectCPUs();
+const NUM_CPUS = await detectCPUs();
 const MEMORY_MB = await detectMemoryMB();
 
 @WorkerClass({ pool: NUM_CPUS })
@@ -182,17 +256,21 @@ Bun.serve({
 
       const durationSec = Number(body.durationSec ?? 15);
       const memoryPercent = Number(body.memoryPercent ?? 80);
-      const perWorkerMemMB = Math.floor((MEMORY_MB * memoryPercent / 100) / NUM_CPUS);
+      const totalMemoryTargetMB = Math.max(0, Math.floor(MEMORY_MB * memoryPercent / 100));
+      const memoryAssignmentsMB = buildMemoryAssignments(totalMemoryTargetMB, NUM_CPUS);
+      const maxMemoryPerWorkerMB = memoryAssignmentsMB.length > 0 ? Math.max(...memoryAssignmentsMB) : 0;
+      const workersAllocatingMemory = memoryAssignmentsMB.filter((memoryMB) => memoryMB > 0).length;
 
       console.log(
-        `[burn-worker-class] ${NUM_CPUS} workers × ${durationSec}s × ${perWorkerMemMB} MB/worker ` +
-        `(${perWorkerMemMB * NUM_CPUS} MB total, ${memoryPercent}% of ${MEMORY_MB} MB)`,
+        `[burn-worker-class] ${NUM_CPUS} workers × ${durationSec}s × up to ${maxMemoryPerWorkerMB} MB/worker ` +
+        `(${totalMemoryTargetMB} MB total, ${workersAllocatingMemory} worker(s) allocating, ` +
+        `${memoryPercent}% of ${MEMORY_MB} MB)`,
       );
 
       const start = performance.now();
       const results = await Promise.all(
         Array.from({ length: NUM_CPUS }, (_, workerId) =>
-          burnWorkers.runBurn(workerId, durationSec, perWorkerMemMB),
+          burnWorkers.runBurn(workerId, durationSec, memoryAssignmentsMB[workerId] ?? 0),
         ),
       );
       const elapsedMs = Math.round(performance.now() - start);
@@ -205,8 +283,9 @@ Bun.serve({
         piError: Math.abs(avgPi - Math.PI),
         workers: NUM_CPUS,
         durationSec,
-        memoryPerWorkerMB: perWorkerMemMB,
-        totalMemoryTargetMB: perWorkerMemMB * NUM_CPUS,
+        memoryPerWorkerMB: maxMemoryPerWorkerMB,
+        workersAllocatingMemory,
+        totalMemoryTargetMB,
         containerMemoryMB: MEMORY_MB,
         elapsedMs,
         results,

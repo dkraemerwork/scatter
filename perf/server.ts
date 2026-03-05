@@ -21,40 +21,114 @@ import { readFileSync } from 'node:fs';
 // Container-aware resource detection
 // ---------------------------------------------------------------------------
 
+function parseMemoryOverrideMB(raw: string | undefined): number | null {
+  if (!raw) return null;
+
+  const trimmed = raw.trim().toLowerCase();
+  const match = trimmed.match(/^(\d+)([kmgt])?(?:i?b?)?$/);
+  if (!match) return null;
+
+  const value = parseInt(match[1], 10);
+  const unit = match[2] ?? 'm';
+
+  switch (unit) {
+    case 'k': return Math.max(1, Math.floor(value / 1024));
+    case 'm': return value;
+    case 'g': return value * 1024;
+    case 't': return value * 1024 * 1024;
+    default: return null;
+  }
+}
+
+function parseCgroupMemoryLimitMB(raw: string): number | null {
+  const trimmed = raw.trim().toLowerCase();
+  if (!trimmed || trimmed === 'max') return null;
+
+  if (/^\d+$/.test(trimmed)) {
+    const bytes = parseInt(trimmed, 10);
+    return bytes > 0 ? Math.max(1, Math.floor(bytes / (1024 * 1024))) : null;
+  }
+
+  return parseMemoryOverrideMB(trimmed);
+}
+
+function parseCpuLimit(raw: string): number | null {
+  const [quotaText, periodText] = raw.trim().split(/\s+/);
+  if (!quotaText || quotaText === 'max' || !periodText) return null;
+
+  const quota = parseInt(quotaText, 10);
+  const period = parseInt(periodText, 10);
+
+  if (quota <= 0 || period <= 0) return null;
+  return Math.max(1, Math.floor(quota / period));
+}
+
 function detectCPUs(): number {
   const envOverride = parseInt(process.env.CPUS ?? '', 10);
   if (envOverride > 0) return envOverride;
 
-  // navigator.hardwareConcurrency is cgroup-aware in many runtimes
+  try {
+    const cpuMax = readFileSync('/sys/fs/cgroup/cpu.max', 'utf-8');
+    const detected = parseCpuLimit(cpuMax);
+    if (detected !== null) return detected;
+  } catch {}
+
+  try {
+    const quota = parseInt(readFileSync('/sys/fs/cgroup/cpu/cpu.cfs_quota_us', 'utf-8').trim(), 10);
+    const period = parseInt(readFileSync('/sys/fs/cgroup/cpu/cpu.cfs_period_us', 'utf-8').trim(), 10);
+    if (quota > 0 && period > 0) {
+      return Math.max(1, Math.floor(quota / period));
+    }
+  } catch {}
+
   if (typeof navigator !== 'undefined' && navigator.hardwareConcurrency > 0) {
     return navigator.hardwareConcurrency;
   }
+
   return cpus().length;
 }
 
 function detectMemoryMB(): number {
-  const envOverride = parseInt(process.env.MEMORY_MB ?? '', 10);
-  if (envOverride > 0) return envOverride;
+  const envOverride = parseMemoryOverrideMB(process.env.MEMORY_MB);
+  if (envOverride !== null && envOverride > 0) return envOverride;
 
   // cgroup v2
   try {
-    const text = readFileSync('/sys/fs/cgroup/memory.max', 'utf-8').trim();
-    if (text !== 'max') {
-      return Math.floor(parseInt(text, 10) / (1024 * 1024));
+    const text = readFileSync('/sys/fs/cgroup/memory.max', 'utf-8');
+    const detected = parseCgroupMemoryLimitMB(text);
+    if (detected !== null) {
+      return detected;
     }
   } catch {}
 
   // cgroup v1
   try {
-    const text = readFileSync('/sys/fs/cgroup/memory/memory.limit_in_bytes', 'utf-8').trim();
-    const limit = parseInt(text, 10);
+    const text = readFileSync('/sys/fs/cgroup/memory/memory.limit_in_bytes', 'utf-8');
+    const limit = parseCgroupMemoryLimitMB(text);
     const total = totalmem();
-    if (limit > 0 && limit < total) {
-      return Math.floor(limit / (1024 * 1024));
+    if (limit !== null && limit > 0 && limit * 1024 * 1024 < total) {
+      return limit;
     }
   } catch {}
 
   return Math.floor(totalmem() / (1024 * 1024));
+}
+
+function buildMemoryAssignments(totalMemoryMB: number, workerCount: number): number[] {
+  if (workerCount < 1) return [];
+
+  const safeTotal = Math.max(0, totalMemoryMB);
+  const base = Math.floor(safeTotal / workerCount);
+  let remainder = safeTotal % workerCount;
+
+  return Array.from({ length: workerCount }, () => {
+    if (remainder > 0) {
+      remainder--;
+      return base + 1;
+    }
+
+    return base;
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -194,11 +268,15 @@ Bun.serve({
 
       const durationSec    = Number(body.durationSec ?? 15);
       const memoryPercent  = Number(body.memoryPercent ?? 80);
-      const perWorkerMemMB = Math.floor((MEMORY_MB * memoryPercent / 100) / NUM_CPUS);
+      const totalMemoryTargetMB = Math.max(0, Math.floor(MEMORY_MB * memoryPercent / 100));
+      const memoryAssignmentsMB = buildMemoryAssignments(totalMemoryTargetMB, NUM_CPUS);
+      const maxMemoryPerWorkerMB = memoryAssignmentsMB.length > 0 ? Math.max(...memoryAssignmentsMB) : 0;
+      const workersAllocatingMemory = memoryAssignmentsMB.filter((memoryMB) => memoryMB > 0).length;
 
       console.log(
-        `[burn] ${NUM_CPUS} workers × ${durationSec}s × ${perWorkerMemMB} MB/worker  ` +
-        `(${perWorkerMemMB * NUM_CPUS} MB total, ${memoryPercent}% of ${MEMORY_MB} MB)`,
+        `[burn] ${NUM_CPUS} workers × ${durationSec}s × up to ${maxMemoryPerWorkerMB} MB/worker  ` +
+        `(${totalMemoryTargetMB} MB total, ${workersAllocatingMemory} worker(s) allocating, ` +
+        `${memoryPercent}% of ${MEMORY_MB} MB)`,
       );
 
       const start = performance.now();
@@ -208,7 +286,7 @@ Bun.serve({
         pool.exec({
           workerId: i,
           durationSec,
-          memoryMB: perWorkerMemMB,
+          memoryMB: memoryAssignmentsMB[i] ?? 0,
         }),
       );
       const results = await Promise.all(tasks);
@@ -223,8 +301,9 @@ Bun.serve({
         piError:             Math.abs(avgPi - Math.PI),
         workers:             NUM_CPUS,
         durationSec,
-        memoryPerWorkerMB:   perWorkerMemMB,
-        totalMemoryTargetMB: perWorkerMemMB * NUM_CPUS,
+        memoryPerWorkerMB:   maxMemoryPerWorkerMB,
+        workersAllocatingMemory,
+        totalMemoryTargetMB,
         containerMemoryMB:   MEMORY_MB,
         elapsedMs,
         results,

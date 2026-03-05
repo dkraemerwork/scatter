@@ -3,10 +3,10 @@ services:
     build:
       context: ..
       dockerfile: perf/Dockerfile
+    environment:
+      CPUS: "12"
+      MEMORY_MB: "4096"
     ports:
       - "3000:3000"
-    deploy:
-      resources:
-        limits:
-          cpus: "12"
-          memory: 4G
+    cpus: 12
+    mem_limit: 4g

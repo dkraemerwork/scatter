@@ -17,7 +17,7 @@ import type { ChannelDef } from '../memory/shared-channel.js';
  *
  * @example
  * ```ts
- * import { Channel } from 'scatter.js';
+ * import { Channel } from '@zenystx/scatterjs';
  *
  * const handle = scatter.spawn(workerFn, {
  *   channels: {

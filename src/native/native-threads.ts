@@ -13,7 +13,7 @@
  *
  * @example
  * ```ts
- * import { NativeThreads } from 'scatter.js';
+ * import { NativeThreads } from '@zenystx/scatterjs';
  *
  * const native = await NativeThreads.create();
  *

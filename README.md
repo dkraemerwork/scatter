@@ -23,11 +23,11 @@ Inline Bun workers with lock-free shared-memory channels. Scatter your work acro
 ## Usage
 
 ```bash
-bun add scatter.js
+bun add @zenystx/scatterjs
 ```
 
 ```ts
-import { scatter, Channel } from 'scatter.js';
+import { scatter, Channel } from '@zenystx/scatterjs';
 ```
 
 Five API tiers, one import:
@@ -47,10 +47,10 @@ import {
   Scaled,
   WorkerClass,
   cleanupAllDecoratorPools,
-} from 'scatter.js/decorators';
+} from '@zenystx/scatterjs/decorators';
 ```
 
-The decorator API stays separate so the core `scatter.js` import remains zero-overhead for users who
+The decorator API stays separate so the core `@zenystx/scatterjs` import remains zero-overhead for users who
 only want the runtime primitives.
 
 ## Examples
@@ -133,7 +133,7 @@ const total = partialSums.reduce((a, b) => a + b, 0);
 
 ## Decorators
 
-Decorators are opt-in via `scatter.js/decorators`.
+Decorators are opt-in via `@zenystx/scatterjs/decorators`.
 
 - `@Scaled()` offloads a single method; default mode is one-shot and `@Scaled({ pool: N })` reuses a shared pool.
 - `@WorkerClass()` proxies public prototype methods through a per-class shared worker pool.
@@ -144,7 +144,7 @@ Decorators are opt-in via `scatter.js/decorators`.
 ### `@Scaled()`
 
 ```ts
-import { Scaled, cleanupAllDecoratorPools } from 'scatter.js/decorators';
+import { Scaled, cleanupAllDecoratorPools } from '@zenystx/scatterjs/decorators';
 
 class ScoreService {
   multiplier = 3;
@@ -164,8 +164,8 @@ await cleanupAllDecoratorPools();
 ### `@WorkerClass()`
 
 ```ts
-import { WorkerClass } from 'scatter.js/decorators';
-import type { WorkerClassStatic, WorkerProxied } from 'scatter.js/decorators';
+import { WorkerClass } from '@zenystx/scatterjs/decorators';
+import type { WorkerClassStatic, WorkerProxied } from '@zenystx/scatterjs/decorators';
 
 @WorkerClass({ pool: 4 })
 class ImageService {
@@ -193,7 +193,7 @@ await ImageServiceClass.disposeWorkers();
 ## Native pthreads
 
 ```ts
-import { NativeThreads } from 'scatter.js';
+import { NativeThreads } from '@zenystx/scatterjs';
 
 const native = await NativeThreads.create();
 

@@ -15,7 +15,7 @@
  *
  * @example
  * ```ts
- * import { scatter, Channel } from 'scatter.js';
+ * import { scatter, Channel } from '@zenystx/scatterjs';
  *
  * // One-shot
  * const pi = await scatter(() => computePi(1_000_000));

@@ -1,7 +1,7 @@
 /**
  * Scatter — Inline Bun workers with lock-free shared-memory channels.
  *
- * Public API surface. Everything a user imports from `scatter.js` comes from here.
+ * Public API surface. Everything a user imports from `@zenystx/scatterjs` comes from here.
  *
  * Five API tiers:
  *   scatter()        — one-shot: offload a function to a thread
@@ -12,7 +12,7 @@
  *
  * @example
  * ```ts
- * import { scatter, Channel } from 'scatter.js';
+ * import { scatter, Channel } from '@zenystx/scatterjs';
  *
  * // One-shot
  * const pi = await scatter(() => computePi(1_000_000));

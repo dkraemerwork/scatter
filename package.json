@@ -1,5 +1,5 @@
 {
-  "name": "scatter.js",
+  "name": "@zenystx/scatterjs",
   "version": "0.1.0",
   "description": "Inline Bun workers with lock-free shared-memory channels. Scatter your work across all cores.",
   "author": "Dennis Kraemer <dkraemerwork@gmail.com>",

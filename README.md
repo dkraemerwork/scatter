@@ -2,6 +2,8 @@
 
 Inline Bun workers with lock-free shared-memory channels. Scatter your work across all cores.
 
+npm: [`@zenystx/scatterjs`](https://www.npmjs.com/package/@zenystx/scatterjs)
+
 ## Goals
 
 - **Zero boilerplate** — pass a function, get a thread. No separate worker files, no build step.

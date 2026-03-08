@@ -32,6 +32,8 @@ bun add @zenystx/scatterjs
 import { scatter, Channel } from '@zenystx/scatterjs';
 ```
 
+Custom codecs can be created with `createCodec(...)` or passed as plain objects. For `scatter.spawn()` they must be self-contained functions, just like worker functions.
+
 Five API tiers, one import:
 
 | Tier | Function | Purpose |
@@ -243,7 +245,7 @@ for (const r of results) {
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
 | `capacity` | `number` | `65536` | Ring buffer size in bytes. |
-| `codec` | `CodecLike<T>` | `'structured'` | Serialization codec: `'raw'`, `'number'`, `'string'`, `'json'`, `'structured'`, or custom. |
+| `codec` | `CodecLike<T>` | `'structured'` | Serialization codec: `'raw'`, `'number'`, `'string'`, `'json'`, `'structured'`, or custom. Custom codecs are rehydrated inside workers from their function source. |
 
 ### `scatter.max(fn, options)`
 

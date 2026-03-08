@@ -41,6 +41,13 @@ export type BuiltinCodecName = 'raw' | 'number' | 'string' | 'json' | 'structure
  */
 export type CodecLike<T> = Codec<T> | BuiltinCodecName;
 
+/** Serialized representation used to rehydrate codecs across worker boundaries. */
+export interface SerializedCodec {
+  readonly name: string;
+  readonly encodeSource?: string;
+  readonly decodeSource?: string;
+}
+
 // ---------------------------------------------------------------------------
 // Factory helper
 // ---------------------------------------------------------------------------
@@ -74,6 +81,42 @@ export function createCodec<T>(spec: {
     encode: spec.encode,
     decode: spec.decode,
   };
+}
+
+function normalizeFunctionSource(fnSource: string): string {
+  const trimmed = fnSource.trimStart();
+  const firstBraceIndex = trimmed.indexOf('{');
+  const signature = firstBraceIndex === -1 ? trimmed : trimmed.slice(0, firstBraceIndex);
+
+  if (trimmed.startsWith('function') || signature.includes('=>')) return trimmed;
+
+  if (trimmed.startsWith('async') && trimmed.slice(5).trimStart().startsWith('*')) {
+    const afterAsync = trimmed.slice(5).trimStart();
+    const afterStar = afterAsync.slice(1).trimStart();
+    return `async function* ${afterStar}`;
+  }
+
+  if (trimmed.startsWith('async')) {
+    const afterAsync = trimmed.slice(5).trimStart();
+    return `async function ${afterAsync}`;
+  }
+
+  if (trimmed.startsWith('*')) {
+    const afterStar = trimmed.slice(1).trimStart();
+    return `function* ${afterStar}`;
+  }
+
+  return `function ${trimmed}`;
+}
+
+function serializeFunctionSource(fn: (value: unknown) => unknown, label: string, codecName: string): string {
+  const source = normalizeFunctionSource(fn.toString());
+  if (source.includes('[native code]')) {
+    throw new TypeError(
+      `scatter: custom codec "${codecName}" cannot be materialized in a worker because ${label} is native code.`,
+    );
+  }
+  return source;
 }
 
 // ---------------------------------------------------------------------------
@@ -211,6 +254,11 @@ const BUILTIN_REGISTRY = new Map<BuiltinCodecName, Codec<unknown>>([
   ['structured', STRUCTURED_CODEC],
 ]);
 
+function isBuiltinCodecInstance(codec: Codec<unknown>): boolean {
+  const builtin = BUILTIN_REGISTRY.get(codec.name as BuiltinCodecName);
+  return builtin === codec;
+}
+
 /**
  * Resolve a {@link CodecLike} specifier to a concrete {@link Codec} instance.
  *
@@ -243,4 +291,16 @@ export function resolveCodec<T>(codec: CodecLike<T>): Codec<T> {
   }
 
   return resolved as Codec<T>;
+}
+
+export function serializeCodec(codec: Codec<unknown>): SerializedCodec {
+  if (isBuiltinCodecInstance(codec)) {
+    return { name: codec.name };
+  }
+
+  return {
+    name: codec.name,
+    encodeSource: serializeFunctionSource(codec.encode as (value: unknown) => unknown, 'encode()', codec.name),
+    decodeSource: serializeFunctionSource(codec.decode as (value: unknown) => unknown, 'decode()', codec.name),
+  };
 }

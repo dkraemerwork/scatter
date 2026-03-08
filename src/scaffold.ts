@@ -68,8 +68,48 @@ const INLINE_CHANNEL_SOURCE = /* js */ `
 const __enc = new TextEncoder();
 const __dec = new TextDecoder();
 
-function __resolveCodec(name) {
-  switch (name) {
+function __normalizeFunctionSource(fnSource) {
+  const trimmed = fnSource.trimStart();
+  const firstBraceIndex = trimmed.indexOf('{');
+  const signature = firstBraceIndex === -1 ? trimmed : trimmed.slice(0, firstBraceIndex);
+
+  if (trimmed.startsWith('function') || signature.includes('=>')) return trimmed;
+
+  if (trimmed.startsWith('async') && trimmed.slice(5).trimStart().startsWith('*')) {
+    const afterAsync = trimmed.slice(5).trimStart();
+    const afterStar = afterAsync.slice(1).trimStart();
+    return 'async function* ' + afterStar;
+  }
+
+  if (trimmed.startsWith('async')) {
+    const afterAsync = trimmed.slice(5).trimStart();
+    return 'async function ' + afterAsync;
+  }
+
+  if (trimmed.startsWith('*')) {
+    const afterStar = trimmed.slice(1).trimStart();
+    return 'function* ' + afterStar;
+  }
+
+  return 'function ' + trimmed;
+}
+
+function __hydrateCodec(meta) {
+  if (typeof meta.codecEncodeSource !== 'string' || typeof meta.codecDecodeSource !== 'string') {
+    return null;
+  }
+
+  return {
+    encode: new Function('return (' + __normalizeFunctionSource(meta.codecEncodeSource) + ');')(),
+    decode: new Function('return (' + __normalizeFunctionSource(meta.codecDecodeSource) + ');')(),
+  };
+}
+
+function __resolveCodec(meta) {
+  const customCodec = __hydrateCodec(meta);
+  if (customCodec !== null) return customCodec;
+
+  switch (meta.codecName) {
     case 'raw':        return { encode: v => v, decode: b => b };
     case 'number':     return {
       encode(v) { const f = new Float64Array(1); f[0] = v; return new Uint8Array(f.buffer); },
@@ -83,7 +123,7 @@ function __resolveCodec(name) {
     case 'structured': return typeof Bun !== 'undefined'
       ? { encode: v => Bun.serialize(v), decode: b => Bun.deserialize(b) }
       : { encode: v => __enc.encode(JSON.stringify(v)), decode: b => JSON.parse(__dec.decode(b)) };
-    default: throw new TypeError('scatter: unknown codec "' + name + '"');
+    default: throw new TypeError('scatter: unknown codec "' + meta.codecName + '"');
   }
 }
 
@@ -94,7 +134,7 @@ const __RB_CLOSED = 2; // Uint32 index (0=open, 1=closed)
 const __RB_HEADER = 12; // bytes
 
 function __channelFromMeta(meta) {
-  const codec  = __resolveCodec(meta.codecName);
+  const codec  = __resolveCodec(meta);
   const ringU32 = new Uint32Array(meta.ringSab);
   const ringU8 = new Uint8Array(meta.ringSab);
   const sig32  = new Int32Array(meta.signalSab);

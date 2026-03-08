@@ -27,8 +27,8 @@
  * ```
  */
 
-import type { Codec, CodecLike } from './codec.js';
-import { resolveCodec } from './codec.js';
+import type { Codec, CodecLike, SerializedCodec } from './codec.js';
+import { resolveCodec, serializeCodec } from './codec.js';
 import type { SharedRingBuffer } from './ring-buffer.js';
 import { createRingBuffer, ringBufferFromBuffer } from './ring-buffer.js';
 import type { AtomicSignal } from './atomic-signal.js';
@@ -212,6 +212,8 @@ export interface ChannelMeta {
   readonly signalSab: SharedArrayBuffer;
   readonly capacity: number;
   readonly codecName: string;
+  readonly codecEncodeSource?: string;
+  readonly codecDecodeSource?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -364,11 +366,14 @@ function buildChannel<T>(
     },
 
     get meta(): ChannelMeta {
+      const serializedCodec = serializeCodec(codec as Codec<unknown>);
       return {
         ringSab: ring.buffer,
         signalSab: signal.buffer,
         capacity: ring.capacity,
-        codecName: codec.name,
+        codecName: serializedCodec.name,
+        codecEncodeSource: serializedCodec.encodeSource,
+        codecDecodeSource: serializedCodec.decodeSource,
       };
     },
 
@@ -528,7 +533,13 @@ export function createChannel<T>(options?: ChannelOptions<T>): SharedChannel<T> 
  * ```
  */
 export function channelFromMeta<T>(meta: ChannelMeta): SharedChannel<T> {
-  const codec = resolveCodec<T>(meta.codecName as CodecLike<T>);
+  const codec = meta.codecEncodeSource !== undefined && meta.codecDecodeSource !== undefined
+    ? {
+        name: meta.codecName,
+        encode: new Function(`return (${meta.codecEncodeSource});`)() as Codec<T>['encode'],
+        decode: new Function(`return (${meta.codecDecodeSource});`)() as Codec<T>['decode'],
+      }
+    : resolveCodec<T>(meta.codecName as CodecLike<T>);
   const ring = ringBufferFromBuffer(meta.ringSab);
   const signal = atomicSignalFromBuffer(meta.signalSab);
   return buildChannel(ring, signal, codec);

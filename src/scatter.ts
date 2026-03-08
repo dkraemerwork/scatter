@@ -889,6 +889,9 @@ export interface ChannelDefOptions<T> {
    * Can be a built-in name (`'raw'`, `'number'`, `'string'`, `'json'`,
    * `'structured'`) or a custom `Codec<T>` instance.
    *
+   * Custom codecs used with `scatter.spawn()` must be self-contained because
+   * scatter rehydrates them inside the worker from their function source.
+   *
    * Default: `'structured'` (uses the structured-clone algorithm).
    */
   readonly codec?: CodecLike<T>;

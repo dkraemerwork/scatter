@@ -97,10 +97,11 @@ export {
 } from './error.js';
 
 // ---------------------------------------------------------------------------
-// Custom codec interface — for power users who build custom serializers
+// Custom codec helpers — for power users who build custom serializers
 // ---------------------------------------------------------------------------
 
 export type { Codec } from './memory/codec.js';
+export { createCodec } from './memory/codec.js';
 
 // ---------------------------------------------------------------------------
 // Native threads — raw pthreads via bun:ffi for maximum performance

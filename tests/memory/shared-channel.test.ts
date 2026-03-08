@@ -1,5 +1,6 @@
 import { describe, test, expect } from 'bun:test';
 import { createChannel, channelFromMeta } from '../../src/memory/shared-channel.js';
+import { createCodec } from '../../src/memory/codec.js';
 import { ChannelClosedError, ChannelFullError } from '../../src/error.js';
 
 describe('SharedChannel', () => {
@@ -154,6 +155,27 @@ describe('SharedChannel', () => {
     expect(ch.read()).toBe('world');
   });
 
+  test('channelFromMeta reconstructs custom codec channels', () => {
+    const codec = createCodec<{ value: number }>({
+      name: 'json-custom',
+      encode(value) {
+        return new TextEncoder().encode(JSON.stringify(value));
+      },
+      decode(buffer) {
+        return JSON.parse(new TextDecoder().decode(buffer)) as { value: number };
+      },
+    });
+
+    const ch = createChannel<{ value: number }>({ codec, capacity: 1024 });
+    ch.write({ value: 42 });
+
+    const ch2 = channelFromMeta<{ value: number }>(ch.meta);
+    expect(ch2.read()).toEqual({ value: 42 });
+
+    ch2.write({ value: 7 });
+    expect(ch.read()).toEqual({ value: 7 });
+  });
+
   test('meta contains correct properties', () => {
     const ch = createChannel<number>({ codec: 'number', capacity: 4096 });
     const meta = ch.meta;
@@ -161,6 +183,29 @@ describe('SharedChannel', () => {
     expect(meta.signalSab).toBeInstanceOf(SharedArrayBuffer);
     expect(meta.capacity).toBe(4096);
     expect(meta.codecName).toBe('number');
+    expect(meta.codecEncodeSource).toBeUndefined();
+    expect(meta.codecDecodeSource).toBeUndefined();
+  });
+
+  test('meta includes custom codec sources when needed', () => {
+    const codec = createCodec<number>({
+      name: 'double',
+      encode(value) {
+        const buf = new Float64Array(1);
+        buf[0] = value * 2;
+        return new Uint8Array(buf.buffer);
+      },
+      decode(buffer) {
+        return new Float64Array(buffer.buffer, buffer.byteOffset, 1)[0] / 2;
+      },
+    });
+
+    const ch = createChannel<number>({ codec });
+    const meta = ch.meta;
+
+    expect(meta.codecName).toBe('double');
+    expect(meta.codecEncodeSource).toContain('value * 2');
+    expect(meta.codecDecodeSource).toContain('/ 2');
   });
 
   test('transferables contain SABs', () => {

@@ -29,10 +29,54 @@ bun add @zenystx/scatterjs
 ```
 
 ```ts
-import { scatter, Channel } from '@zenystx/scatterjs';
+import { scatter, Channel, createCodec } from '@zenystx/scatterjs';
 ```
 
 Custom codecs can be created with `createCodec(...)` or passed as plain objects. For `scatter.spawn()` they must be self-contained functions, just like worker functions.
+
+### Custom codecs
+
+```ts
+const jsonLinesCodec = createCodec<{ id: number; name: string }>({
+  name: 'json-lines',
+  encode(value) {
+    return new TextEncoder().encode(JSON.stringify(value));
+  },
+  decode(buffer) {
+    return JSON.parse(new TextDecoder().decode(buffer)) as {
+      id: number;
+      name: string;
+    };
+  },
+});
+
+using handle = scatter.spawn(
+  async (ctx) => {
+    const input = ctx.channel('input');
+    const output = ctx.channel('output');
+
+    for await (const value of input) {
+      output.write({ ...value, name: value.name.toUpperCase() });
+    }
+
+    output.close();
+  },
+  {
+    channels: {
+      input: Channel.in<{ id: number; name: string }>({ codec: jsonLinesCodec }),
+      output: Channel.out<{ id: number; name: string }>({ codec: jsonLinesCodec }),
+    },
+  },
+);
+```
+
+Rules for custom codecs:
+
+- `encode` must return a `Uint8Array` and `decode` must reverse it.
+- Give each codec a stable `name`.
+- For `scatter.spawn()`, `encode` and `decode` are rehydrated inside the worker from their function source, so keep them self-contained.
+- If a codec depends on external packages, provide those packages to the worker with the `imports` option and reference them from globals or imported module state inside the codec functions.
+- Built-in names are still simpler when they fit: `'structured'`, `'json'`, `'string'`, `'number'`, and `'raw'`.
 
 Five API tiers, one import:
 
